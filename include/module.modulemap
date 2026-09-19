@@ -1,0 +1,4 @@
+module AwgXray {
+  umbrella header "libawgxray.h"
+  export *
+}

@@ -1,0 +1,85 @@
+# One Go runtime (AWG + Xray + Psiphon + USQUE) as HarmonyOS NEXT c-shared.
+# Source: harmonyos-persianray-core (copy of ios-awg-xray). Does not build or modify iOS.
+name: harmonyos-persianray-core
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: harmonyos-persianray-core
+  cancel-in-progress: true
+
+jobs:
+  ohos-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Locate sources
+        run: |
+          set -euo pipefail
+          if [ -f harmonyos-persianray-core/xray_bridge.go ] && [ -d harmonyos-persianray-core/awg-ios ]; then
+            UNITED="$PWD/harmonyos-persianray-core"
+          elif [ -f xray_bridge.go ] && [ -d awg-ios ] && [ -d xray-core ] && [ -d libxray ]; then
+            UNITED="$PWD"
+          else
+            echo "Need harmonyos-persianray-core (copy of ios-awg-xray)."
+            ls -la
+            exit 1
+          fi
+          test -f "$UNITED/psiphon_bridge.go"
+          test -f "$UNITED/awg-ios/cmd/persianray/export.go"
+          test -f "$UNITED/xray-core/go.mod"
+          test -f "$UNITED/libxray/go.mod"
+          test -f "$UNITED/psiphon-ios/MobileLibrary/psi/psi.go"
+          test -f "$UNITED/psiphon-ios/psiphon/persianray_policy.go"
+          test -f "$UNITED/psiphon-ios/vendor/github.com/Psiphon-Labs/quic-go/http3/qpack_compat.go"
+          test -f "$UNITED/usque-ios/go.mod"
+          test -f "$UNITED/usque-ios/mobile/mobile.go"
+          test -f "$UNITED/MobileLibrary/OHOS/build-go-ohos.sh"
+          echo "UNITED=$UNITED" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+
+      - name: Setup OpenHarmony native SDK
+        uses: isaced/setup-ohos@v1
+        with:
+          sdk-version: "6.1-Release"
+          tools: minimal
+
+      - name: Host C toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 binutils
+
+      - name: Build libpersianray_go.so
+        run: |
+          set -euo pipefail
+          perl -pi -e 's/\r$//' "$UNITED/MobileLibrary/OHOS/build-go-ohos.sh"
+          chmod +x "$UNITED/MobileLibrary/OHOS/build-go-ohos.sh"
+          if [ -n "${OHOS_NDK_HOME:-}" ] && [ -d "$OHOS_NDK_HOME/native/llvm" ]; then
+            export OHOS_NDK_HOME="$OHOS_NDK_HOME/native"
+          elif [ -n "${OHOS_SDK:-}" ] && [ -d "$OHOS_SDK/native/llvm" ]; then
+            export OHOS_NDK_HOME="$OHOS_SDK/native"
+          fi
+          bash "$UNITED/MobileLibrary/OHOS/build-go-ohos.sh"
+
+      - name: Upload libpersianray_go.so
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpersianray_go-ohos-arm64
+          path: |
+            ${{ env.UNITED }}/build/ohos-arm64/libpersianray_go.so
+            ${{ env.UNITED }}/build/ohos-arm64/*.h
+            ${{ env.UNITED }}/build/ohos-arm64/symbols.txt
+          if-no-files-found: error
+.yml
