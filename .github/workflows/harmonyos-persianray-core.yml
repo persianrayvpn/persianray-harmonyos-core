@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ohos-arm64:
+  ohos-cshared:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -73,7 +73,7 @@ jobs:
           fi
           bash "$UNITED/MobileLibrary/OHOS/build-go-ohos.sh"
 
-      - name: Upload libpersianray_go.so
+      - name: Upload libpersianray_go.so (phone, arm64)
         uses: actions/upload-artifact@v4
         with:
           name: libpersianray_go-ohos-arm64
@@ -82,3 +82,13 @@ jobs:
             ${{ env.UNITED }}/build/ohos-arm64/*.h
             ${{ env.UNITED }}/build/ohos-arm64/symbols.txt
           if-no-files-found: error
+
+      - name: Upload libpersianray_go.so (emulator, x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpersianray_go-ohos-x86_64
+          path: |
+            ${{ env.UNITED }}/build/ohos-x86_64/libpersianray_go.so
+            ${{ env.UNITED }}/build/ohos-x86_64/*.h
+            ${{ env.UNITED }}/build/ohos-x86_64/symbols.txt
+          if-no-files-found: warn
