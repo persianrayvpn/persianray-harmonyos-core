@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One c-shared from AWG + Xray + Psiphon + USQUE (one Go runtime) for HarmonyOS NEXT.
 # Copy of the iOS staging flow; does not use or modify persianray-ios/ios-awg-xray.
+# OHOS_ARCH=arm64|x86_64|all  (default all). x86_64 is the DevEco emulator ABI.
 set -euo pipefail
 
 UNITED=$(cd "$(dirname "$0")/../.." && pwd)
@@ -48,11 +49,16 @@ find_native() {
     "${DEVECO_SDK_HOME:-}/openharmony/native"
   do
     [ -n "$cand" ] || continue
-    if [ -x "$cand/llvm/bin/aarch64-unknown-linux-ohos-clang" ]; then
+    if [ -e "$cand/llvm/bin/aarch64-unknown-linux-ohos-clang" ] || \
+       [ -e "$cand/llvm/bin/aarch64-unknown-linux-ohos-clang.exe" ] || \
+       [ -e "$cand/llvm/bin/x86_64-unknown-linux-ohos-clang" ] || \
+       [ -e "$cand/llvm/bin/x86_64-unknown-linux-ohos-clang.exe" ]; then
       printf '%s\n' "$cand"
       return 0
     fi
-    if [ -x "$cand/native/llvm/bin/aarch64-unknown-linux-ohos-clang" ]; then
+    if [ -e "$cand/native/llvm/bin/aarch64-unknown-linux-ohos-clang" ] || \
+       [ -e "$cand/native/llvm/bin/x86_64-unknown-linux-ohos-clang" ] || \
+       [ -e "$cand/native/llvm/bin/aarch64-unknown-linux-ohos-clang.exe" ]; then
       printf '%s\n' "$cand/native"
       return 0
     fi
@@ -67,18 +73,8 @@ if [ -z "$NATIVE" ]; then
   exit 1
 fi
 
-CLANG="$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang"
-CLANGXX="$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang++"
-AR="$NATIVE/llvm/bin/llvm-ar"
-SYSROOT="$NATIVE/sysroot"
-if [ ! -d "$SYSROOT" ]; then
-  echo "sysroot missing: $SYSROOT" >&2
-  exit 1
-fi
-
 echo "==> united=$UNITED"
 echo "==> native=$NATIVE"
-echo "==> clang=$CLANG"
 
 STAGE="$UNITED/.staging"
 rm -rf "$STAGE"
@@ -123,71 +119,140 @@ PY
 cd "$STAGE"
 go mod edit -go=1.26.3
 
-OUT="$UNITED/build/ohos-arm64"
-rm -rf "$OUT"
-mkdir -p "$OUT"
-
-# Official Go rejects -buildmode=c-shared for GOOS=openharmony. linux/arm64 + OHOS
-# clang/sysroot produces a musl ELF .so HarmonyOS NEXT can dlopen.
-export CGO_ENABLED=1
-export GOOS=linux
-export GOARCH=arm64
-export CC="$CLANG"
-export CXX="$CLANGXX"
-export AR="$AR"
-export CGO_CFLAGS="--target=aarch64-linux-ohos --sysroot=$SYSROOT -fPIC -O2"
-export CGO_LDFLAGS="--target=aarch64-linux-ohos --sysroot=$SYSROOT -fuse-ld=lld"
-
-echo "==> go build -buildmode=c-shared (linux/arm64, ohos clang)"
-go build -mod=mod -tags PSIPHON_DISABLE_INPROXY -buildmode=c-shared -trimpath \
-  -ldflags "-s -w" \
-  -o "$OUT/libpersianray_go.so" .
-
-cp "$UNITED/include/libawgxray.h" "$OUT/"
-cp "$UNITED/include/libawg.h" "$OUT/"
-cp "$UNITED/include/libxray.h" "$OUT/"
-cp "$UNITED/include/libusque.h" "$OUT/"
-rm -f "$OUT/libpersianray_go.h"
-
-if command -v nm >/dev/null 2>&1; then
-  nm -D --defined-only "$OUT/libpersianray_go.so" > "$OUT/symbols.txt" || nm -D "$OUT/libpersianray_go.so" > "$OUT/symbols.txt"
-  for symbol in \
-    AwgStart \
-    AwgStop \
-    CGoInvoke \
-    CGoFree \
-    PRPsiphonStart \
-    PRPsiphonStop \
-    PRPsiphonNoticePoll \
-    PRPsiphonSocksPort \
-    PRUsqueInvoke \
-    PRUsqueRegister \
-    PRUsqueStart \
-    PRUsqueStop \
-    PRUsqueStopAll \
-    PRUsqueStatus \
-    PRUsqueIsReady \
-    PRUsqueLastError \
-    PRUsqueProbe \
-    PRUsqueFree \
-    PRUsqueIsStub; do
-    grep -E "[[:space:]]${symbol}$" "$OUT/symbols.txt" >/dev/null || {
-      echo "Missing required symbol: $symbol" >&2
-      exit 1
-    }
-  done
-  echo "==> C ABI symbols ok"
+SYSROOT="$NATIVE/sysroot"
+if [ ! -d "$SYSROOT" ]; then
+  echo "sysroot missing: $SYSROOT" >&2
+  exit 1
 fi
 
-APP="${HARMONYOS_APP:-}"
-if [ -z "$APP" ] && [ -d "$UNITED/../persianray-harmonyos" ]; then
-  APP="$(cd "$UNITED/../persianray-harmonyos" && pwd)"
-fi
-if [ -n "$APP" ] && [ -d "$APP/entry" ]; then
-  mkdir -p "$APP/entry/libs/arm64-v8a" "$APP/entry/src/main/cpp/include"
-  cp "$OUT/libpersianray_go.so" "$APP/entry/libs/arm64-v8a/"
-  cp "$OUT/"*.h "$APP/entry/src/main/cpp/include/"
-  echo "==> copied into $APP/entry/libs/arm64-v8a and cpp/include"
-fi
+tool() {
+  local name="$1"
+  if [ -x "$NATIVE/llvm/bin/${name}" ]; then
+    printf '%s\n' "$NATIVE/llvm/bin/${name}"
+    return 0
+  fi
+  if [ -x "$NATIVE/llvm/bin/${name}.exe" ]; then
+    printf '%s\n' "$NATIVE/llvm/bin/${name}.exe"
+    return 0
+  fi
+  return 1
+}
 
-echo "==> $OUT/libpersianray_go.so"
+build_one() {
+  local arch="$1"
+  local goarch clang clangxx target abi out
+  case "$arch" in
+    arm64)
+      goarch=arm64
+      target=aarch64-linux-ohos
+      abi=arm64-v8a
+      clang="$(tool aarch64-unknown-linux-ohos-clang)" || {
+        echo "missing aarch64-unknown-linux-ohos-clang" >&2
+        return 1
+      }
+      clangxx="$(tool aarch64-unknown-linux-ohos-clang++)" || clangxx="$clang"
+      ;;
+    x86_64)
+      goarch=amd64
+      target=x86_64-linux-ohos
+      abi=x86_64
+      clang="$(tool x86_64-unknown-linux-ohos-clang)" || {
+        echo "missing x86_64-unknown-linux-ohos-clang (needed for the DevEco emulator)" >&2
+        return 1
+      }
+      clangxx="$(tool x86_64-unknown-linux-ohos-clang++)" || clangxx="$clang"
+      ;;
+    *)
+      echo "Unknown OHOS_ARCH=$arch (use arm64, x86_64, or all)" >&2
+      return 1
+      ;;
+  esac
+
+  out="$UNITED/build/ohos-${arch}"
+  rm -rf "$out"
+  mkdir -p "$out"
+
+  export CGO_ENABLED=1
+  export GOOS=linux
+  export GOARCH="$goarch"
+  export CC="$clang"
+  export CXX="$clangxx"
+  export AR="$(tool llvm-ar)"
+  export CGO_CFLAGS="--target=$target --sysroot=$SYSROOT -fPIC -O2"
+  export CGO_LDFLAGS="--target=$target --sysroot=$SYSROOT -fuse-ld=lld"
+
+  echo "==> go build -buildmode=c-shared (linux/$goarch, $target)"
+  echo "==> clang=$clang"
+  go build -mod=mod -tags PSIPHON_DISABLE_INPROXY -buildmode=c-shared -trimpath \
+    -ldflags "-s -w" \
+    -o "$out/libpersianray_go.so" .
+
+  cp "$UNITED/include/libawgxray.h" "$out/"
+  cp "$UNITED/include/libawg.h" "$out/"
+  cp "$UNITED/include/libxray.h" "$out/"
+  cp "$UNITED/include/libusque.h" "$out/"
+  rm -f "$out/libpersianray_go.h"
+
+  if command -v nm >/dev/null 2>&1; then
+    nm -D --defined-only "$out/libpersianray_go.so" > "$out/symbols.txt" || nm -D "$out/libpersianray_go.so" > "$out/symbols.txt"
+    for symbol in \
+      AwgStart \
+      AwgStop \
+      CGoInvoke \
+      CGoFree \
+      PRPsiphonStart \
+      PRPsiphonStop \
+      PRPsiphonNoticePoll \
+      PRPsiphonSocksPort \
+      PRUsqueInvoke \
+      PRUsqueRegister \
+      PRUsqueStart \
+      PRUsqueStop \
+      PRUsqueStopAll \
+      PRUsqueStatus \
+      PRUsqueIsReady \
+      PRUsqueLastError \
+      PRUsqueProbe \
+      PRUsqueFree \
+      PRUsqueIsStub; do
+      grep -E "[[:space:]]${symbol}$" "$out/symbols.txt" >/dev/null || {
+        echo "Missing required symbol: $symbol" >&2
+        return 1
+      }
+    done
+    echo "==> C ABI symbols ok ($arch)"
+  fi
+
+  APP="${HARMONYOS_APP:-}"
+  if [ -z "$APP" ] && [ -d "$UNITED/../persianray-harmonyos" ]; then
+    APP="$(cd "$UNITED/../persianray-harmonyos" && pwd)"
+  fi
+  if [ -n "$APP" ] && [ -d "$APP/entry" ]; then
+    mkdir -p "$APP/entry/libs/$abi" "$APP/entry/src/main/cpp/include"
+    cp "$out/libpersianray_go.so" "$APP/entry/libs/$abi/"
+    cp "$out/"*.h "$APP/entry/src/main/cpp/include/"
+    echo "==> copied into $APP/entry/libs/$abi"
+  fi
+
+  echo "==> $out/libpersianray_go.so"
+}
+
+ARCHS="${OHOS_ARCH:-all}"
+if [ "$ARCHS" = "all" ]; then
+  ARCHS="arm64 x86_64"
+fi
+built=""
+for arch in $ARCHS; do
+  if [ "$arch" = "x86_64" ] && [ "${OHOS_ARCH:-all}" = "all" ]; then
+    if ! tool x86_64-unknown-linux-ohos-clang >/dev/null 2>&1; then
+      echo "==> skip x86_64 (no x86_64-unknown-linux-ohos-clang in NDK)"
+      continue
+    fi
+  fi
+  build_one "$arch"
+  built="$built $arch"
+done
+if [ -z "${built## }" ]; then
+  echo "No libpersianray_go.so was built. Install the OpenHarmony native NDK and retry." >&2
+  exit 1
+fi
