@@ -108,6 +108,8 @@ repls = {
         f"replace github.com/Psiphon-Labs/quic-go => {psiphon}/vendor/github.com/Psiphon-Labs/quic-go",
     "replace github.com/Diniboy1123/usque => ./usque-ios":
         f"replace github.com/Diniboy1123/usque => {usque}",
+    "replace github.com/tailscale/netlink => ./psiphon-ios/vendor/github.com/tailscale/netlink":
+        f"replace github.com/tailscale/netlink => {psiphon}/vendor/github.com/tailscale/netlink",
 }
 for old, new in repls.items():
     if old not in text:
