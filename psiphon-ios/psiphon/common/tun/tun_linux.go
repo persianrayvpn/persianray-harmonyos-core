@@ -33,7 +33,7 @@ import (
 
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/errors"
-	"github.com/tailscale/netlink"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
