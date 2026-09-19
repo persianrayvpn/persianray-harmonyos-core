@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tailscale/netlink"
+	"github.com/vishvananda/netlink"
 	"tailscale.com/types/logger"
 )
 
