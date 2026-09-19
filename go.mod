@@ -163,3 +163,8 @@ replace github.com/Psiphon-Labs/quic-go => ./psiphon-ios/vendor/github.com/Psiph
 replace gvisor.dev/gvisor => gvisor.dev/gvisor v0.0.0-20231202080848-1f7806d17489
 
 replace github.com/Diniboy1123/usque => ./usque-ios
+
+// HarmonyOS builds with GOOS=linux, so Psiphon tun_linux and tailscale linuxfw
+// compile. tailscale/netlink@2021 does not build against golang.org/x/sys v0.47
+// (TcSfqQopt Quantum/Divisor, XfrmAddress.ToIPNet).
+replace github.com/tailscale/netlink => github.com/vishvananda/netlink v1.3.1
