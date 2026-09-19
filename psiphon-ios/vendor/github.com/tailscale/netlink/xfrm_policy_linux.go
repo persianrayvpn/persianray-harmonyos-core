@@ -219,8 +219,8 @@ func parseXfrmPolicy(m []byte, family int) (*XfrmPolicy, error) {
 
 	var policy XfrmPolicy
 
-	policy.Dst = msg.Sel.Daddr.ToIPNet(msg.Sel.PrefixlenD)
-	policy.Src = msg.Sel.Saddr.ToIPNet(msg.Sel.PrefixlenS)
+	policy.Dst = msg.Sel.Daddr.ToIPNet(msg.Sel.PrefixlenD, uint16(family))
+	policy.Src = msg.Sel.Saddr.ToIPNet(msg.Sel.PrefixlenS, uint16(family))
 	policy.Proto = Proto(msg.Sel.Proto)
 	policy.DstPort = int(nl.Swap16(msg.Sel.Dport))
 	policy.SrcPort = int(nl.Swap16(msg.Sel.Sport))
