@@ -82,4 +82,3 @@ jobs:
             ${{ env.UNITED }}/build/ohos-arm64/*.h
             ${{ env.UNITED }}/build/ohos-arm64/symbols.txt
           if-no-files-found: error
-.yml
